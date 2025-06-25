@@ -1,0 +1,16 @@
+# ローカル設定ファイル
+CLAUDE.local.md
+*.local.md
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 一時ファイル
+*.tmp
+*.bak
+*~
