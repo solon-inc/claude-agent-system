@@ -29,6 +29,36 @@
 - 質問は1つずつ行い、回答を待ってから次の質問に進む
 - 回答内容は即座に該当ファイルに反映する
 
+## assigneeラベルによる自律的タスク実行
+
+### 自分に割り当てられたタスクの自動確認
+1. **定期確認（30分ごと）**:
+   - mcp__linear__linear_searchIssuesで`assignee:datagatherer`ラベルのタスクを検索
+   - ステータスが"Todo"または"In Progress"のタスクを取得
+   - 優先度順にソートして実行候補を決定
+
+2. **タスク実行時のフロー**:
+   ```bash
+   # 1. assigneeラベルの確認
+   → ラベルに"assignee:datagatherer"が含まれているか確認
+   
+   # 2. タスク内容の解析
+   → タイトルと説明から必要なアクションを判断
+   
+   # 3. 自動実行
+   → 調査・情報収集・ドキュメント処理などを実施
+   
+   # 4. 結果報告
+   → Linear上のタスクにコメントで結果を報告
+   → ステータスを"Done"に更新
+   ```
+
+3. **タスク種別の自動判断**:
+   - 「調査」「リサーチ」→ PerplexityやWeb検索を実行
+   - 「情報収集」→ Linear/GitHub/Slackから情報を収集
+   - 「ドキュメント処理」→ inboxフォルダをスキャン
+   - 「分析」「レポート」→ knowledge_baseを更新
+
 ## エージェントバージョン管理
 
 ### バージョン情報の記録
@@ -69,7 +99,7 @@ agent:
 
 3. **バージョン定義（このファイル内で管理）**:
    ```
-   現在のエージェントバージョン: 1.3.0
+   現在のエージェントバージョン: 1.4.0
    ```
 
 ### バージョンアップ時の処理フロー
@@ -87,6 +117,7 @@ agent:
    - v1.1.0: inboxフォルダ処理機能追加
    - v1.2.0: バージョン管理機能、DOCUMENT_ASSETS.md追加
    - v1.3.0: 会議メモ管理機能、meetings/フォルダ構造追加
+   - v1.4.0: assigneeラベルによる自律的タスク実行機能追加
 
 ### コマンド処理定義（バージョン管理）
 
@@ -224,6 +255,16 @@ Q9: 重要な通知をSlackに送信しますか？（yes/no）
 
 ## コマンド処理定義
 
+### 「自分のタスクを確認」または「assignee:datagathererのタスクを実行」
+1. 必ずmcp__linear__linear_searchIssuesで以下の条件で検索:
+   - labels: ["assignee:datagatherer"]
+   - states: ["Todo", "In Progress"]
+2. タスク一覧を優先度順に表示:
+   - priority:urgent → priority:high → priority:medium → priority:low
+3. 最優先タスクを自動選択して実行開始
+4. タスク実行後、結果をLinearに報告
+5. ステータスを"Done"に更新
+
 ### TaskManagerからの引き継ぎパターン
 
 #### 「Linear issue XXXを実行」または「タスクXXXの調査を開始」
@@ -256,7 +297,7 @@ TaskManager: "TECH-001の調査結果を基に実装タスクを作成"
 ```
 
 ### 「TaskManagerと連携状況を確認」
-1. 必ずmcp__linear__linear_getIssuesで自分に割り当てられたタスクを確認
+1. 必ずmcp__linear__linear_searchIssuesでassignee:datagathererラベルのタスクを確認
 2. 各タスクのステータスと進捗をリスト表示
 3. TaskManagerへの報告が必要なタスクを特定
 4. 必要に応じてLinear上でコメント更新
@@ -597,7 +638,7 @@ TaskManager: "TECH-001の調査結果を基に実装タスクを作成"
 - 外部情報収集（Perplexity）: 1日1回
 - 日次レポート: 毎日18:00
 - 週次レポート: 月曜日9:00
-- **TaskManagerタスクの確認**: 30分ごと（Linear上の割り当てタスクをチェック）
+- **自分のassigneeラベルタスクの確認**: 30分ごと（assignee:datagathererのタスクを自動確認・実行）
 
 ## inboxフォルダ自動監視ルール
 
@@ -638,3 +679,5 @@ TaskManager: "TECH-001の調査結果を基に実装タスクを作成"
 12. GitHub組織リポジトリ作成時のみcurlコマンドを使用（MCP未対応のため）
 13. **TaskManagerとの連携では必ずLinear経由でタスクを受け取り、結果を報告すること**
 14. **プロジェクト開始時はTaskManagerが先に起動されるため、既存のLinearプロジェクトがある前提で動作する**
+15. **assignee:datagathererラベルが付いたタスクは自律的に確認・実行する**
+16. **タスク実行後は必ずLinear上で結果報告とステータス更新を行う**
