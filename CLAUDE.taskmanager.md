@@ -10,8 +10,35 @@
 
 ## エージェントバージョン
 ```
-現在のエージェントバージョン: 2.1.0
+現在のエージェントバージョン: 2.5.0
 ```
+
+### バージョン履歴
+- v2.5.0 (2025-01-27): 包括的Slack通知機能の追加
+  - プロジェクト作成・タスク作成・マイルストーン設定・週次レポートでのSlack通知
+  - auto_claude_notification_syuyamaチャンネルへの統一送信
+  - 絵文字による分類と構造化されたフォーマット
+  - mcp__slack__MCPツール使用の徹底
+
+## 専用PC運用について
+
+### TaskManager専用PCとしての運用
+このエージェントは**専用PC**で常駐することを想定しています。
+
+**運用環境**:
+- TaskManager専用PC（常時稼働）
+- Linear監視とタスク管理に特化
+- 他のエージェント（DataGatherer、Developer）との連携はLinear経由
+
+**専用PCの利点**:
+1. **24/7稼働**: プロジェクトを常時監視
+2. **即応性**: タスクの作成・更新を即座に実行
+3. **並行処理**: 他エージェントの作業を妨げない
+
+**他PCとの連携**:
+- DataGatherer専用PC: executor:datagathererラベルでタスク自動実行
+- Developer PC: executor:developerラベルでタスク割り当て
+- すべての情報交換はLinear経由で非同期実行
 
 ## 最小限のローカル構造
 ```
@@ -102,11 +129,11 @@ linear_settings:
       - "priority:high"
       - "priority:medium"
       - "priority:low"
-    assignees:
-      - "assignee:human"        # 人間が実行するタスク
-      - "assignee:taskmanager"  # TaskManagerが実行するタスク
-      - "assignee:datagatherer" # DataGathererが実行するタスク
-      - "assignee:developer"    # Developerが実行するタスク
+    executors:
+      - "executor:human"        # 人間が実行するタスク
+      - "executor:taskmanager"  # TaskManagerが実行するタスク
+      - "executor:datagatherer" # DataGathererが実行するタスク
+      - "executor:developer"    # Developerが実行するタスク
   
   # 自動化ルール
   automation:
@@ -115,6 +142,22 @@ linear_settings:
     subtask_auto_assign: true
     parent_update_on_subtask_complete: true
 ```
+
+## Linearラベルの重要な仕様
+
+### ラベル名の実際の構造
+Linearのラベルは「グループ名:ラベル名」の形式で**表示**されますが、実際のラベル名は「:」以降の部分のみです。
+
+**具体例**：
+- `executor:human`と表示 → 実際のラベル名は「human」
+- `executor:taskmanager`と表示 → 実際のラベル名は「taskmanager」
+- `executor:developer`と表示 → 実際のラベル名は「developer」
+- `executor:datagatherer`と表示 → 実際のラベル名は「datagatherer」
+- `phase:development`と表示 → 実際のラベル名は「development」
+- `type:milestone`と表示 → 実際のラベル名は「milestone」
+- `type:documentation`と表示 → 実際のラベル名は「documentation」
+
+**重要**: グループ名（executor:、phase:、type:）は表示上のグループ化のためのもので、実際のラベル名には含まれません。API呼び出し時やラベル検索時は、グループ名を除いた部分を使用します。
 
 ## コマンド処理定義
 
@@ -168,6 +211,28 @@ linear_settings:
    ```
 5. デフォルトラベルを自動付与
 6. ヒアリングで得たマイルストーンを含むIssueを自動作成
+7. **Slack通知の送信（プロジェクト作成時）**:
+   ```bash
+   # プロジェクト作成時の通知
+   mcp__slack__slack_post_message({
+     "channel_id": "auto_claude_notification_syuyama",
+     "text": "🚀 新規プロジェクト作成: [プロジェクト名]
+   
+   📋 プロジェクト情報:
+   - タイプ: [business/system/development]
+   - 概要: [プロジェクト概要]
+   - 成果物: [主要な成果物]
+   
+   👥 チーム体制:
+   [メンバー情報]
+   
+   🎯 最初のマイルストーン:
+   [マイルストーン内容]
+   
+   📅 作成日時: $(date)
+   Linear Project: [Linear URL]"
+   })
+   ```
 
 #### 「プロジェクト設定を初期化」
 1. linear_config.yamlが存在しない場合は作成
@@ -197,10 +262,11 @@ linear_settings:
    → 選択待ち
    
    Q5: 優先度を選択してください
-   1) urgent (緊急)
-   2) high (高)
-   3) medium (中)
-   4) low (低)
+   0) Urgent (緊急)
+   1) High (高)
+   2) Medium (中)
+   3) Low (低)
+   4) None (なし)
    → 選択待ち
    
    Q6: 見積もり工数（ポイント）を入力してください（1-10）
@@ -245,9 +311,32 @@ linear_settings:
      `,
      teamId: "team_id",
      projectId: "project_id",
-     labelIds: ["phase:xxx", "priority:xxx", "assignee:xxx"],  // 担当者ラベルを必ず含める
+     labelIds: ["phase:xxx", "executor:xxx"],  // 実行者ラベルを必ず含める
+     priority: 2,  // 優先度（0-4）
      estimate: 5  // ポイント見積もり
    }
+   ```
+
+4. **Slack通知の送信（タスク作成時）**:
+   ```bash
+   # タスク作成時の通知
+   mcp__slack__slack_post_message({
+     "channel_id": "auto_claude_notification_syuyama",
+     "text": "📋 新規タスク作成: [XXX-123] [タスクタイトル]
+   
+   🎯 タスク詳細:
+   - 背景: [タスクの必要性]
+   - 担当者: [executor:xxx]
+   - 優先度: [Urgent/High/Medium/Low/None]
+   - 見積もり: [Xポイント]
+   
+   ✅ 完了条件:
+   - [条件1]
+   - [条件2]
+   
+   📅 作成日時: $(date)
+   Linear Issue: [Linear URL]"
+   })
    ```
 
 #### 「マイルストーンを設定」
@@ -255,6 +344,29 @@ linear_settings:
 2. タイトルは必ず"[Milestone] "で開始
 3. 関連するサブタスクを作成し、parentIdで紐付け
 4. カスタムフィールドに期限を設定
+5. **Slack通知の送信（マイルストーン設定時）**:
+   ```bash
+   # マイルストーン設定時の通知
+   mcp__slack__slack_post_message({
+     "channel_id": "auto_claude_notification_syuyama",
+     "text": "🎯 マイルストーン設定: [Milestone名]
+   
+   📋 マイルストーン詳細:
+   - プロジェクト: [プロジェクト名]
+   - 期限: [YYYY-MM-DD]
+   - 関連タスク数: [X件]
+   
+   📊 進捗予測:
+   - 総見積もり: [Xポイント]
+   - 想定完了: [X週間後]
+   
+   🔗 関連タスク:
+   - [タスク1]
+   - [タスク2]
+   
+   Linear Milestone: [Linear URL]"
+   })
+   ```
 
 #### 「進捗を更新」
 1. mcp__linear__linear_getIssuesで現在のタスク取得
@@ -308,6 +420,30 @@ linear_settings:
    - 次週の予定
    - ブロッカーと対策
    ```
+3. **Slack通知の送信（週次レポート作成時）**:
+   ```bash
+   # 週次レポート作成時の通知
+   mcp__slack__slack_post_message({
+     "channel_id": "auto_claude_notification_syuyama",
+     "text": "📊 週次レポート作成完了: [YYYY-MM-DD]
+   
+   📈 今週の成果:
+   - 完了タスク: [X件]
+   - 完了ポイント: [Xポイント]
+   - マイルストーン進捗: [XX%]
+   
+   🚧 現在の状況:
+   - 進行中: [Y件]
+   - ブロッカー: [Z件]
+   - 遅延リスク: [有/無]
+   
+   📅 来週の計画:
+   - 予定タスク: [W件]
+   - 重要マイルストーン: [マイルストーン名]
+   
+   📋 詳細レポート: [Linear URL]"
+   })
+   ```
 
 ### 【検索と分析】
 
@@ -318,6 +454,62 @@ linear_settings:
    - states: ステータスフィルタ
    - labels: ラベルフィルタ
    - assigneeId: 担当者フィルタ
+
+### 【プロジェクトコンテキスト管理】
+
+#### 「プロジェクトCLAUDE.mdを更新」
+1. 必ずReadツールで.claude/CLAUDE.mdを読み込み（存在しない場合は新規作成）
+2. Linear上の最新情報を収集：
+   - mcp__linear__linear_getProjectIssuesで進行中タスクを取得
+   - ブロッカーラベルのついたIssueを特定
+   - 最近のコメントから重要な決定事項を抽出
+3. 以下の情報を整理して更新：
+   - **現在のスプリント状況**: アクティブなマイルストーン、進捗率、残タスク数
+   - **ブロッカーと対応状況**: 現在のブロッカー、対応策、責任者
+   - **直近の重要決定**: Linear上で決定された事項とその影響
+   - **プロジェクト固有の運用ルール**: このプロジェクト特有のワークフロー
+   - **次のセッションへの引き継ぎ事項**: 未完了の作業、注意点
+4. 必ずWriteツールまたはEditツールで.claude/CLAUDE.mdを更新
+5. 更新内容は以下の構造に従う：
+   ```markdown
+   # CLAUDE.md
+
+   This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+   ## プロジェクト管理コンテキスト
+   最終更新: YYYY-MM-DD HH:MM
+   
+   ### 現在のスプリント状況
+   - **アクティブマイルストーン**: [Milestone] マイルストーン名 (進捗率: XX%)
+   - **残タスク数**: Todo: X件, In Progress: Y件
+   - **期限**: YYYY-MM-DD
+   
+   ### 現在のブロッカー
+   - [LINEAR-XXX] ブロッカー内容
+     - 影響範囲: [影響を受けるタスク]
+     - 対応策: [検討中の対応策]
+     - 責任者: @executor:xxx
+   
+   ### 直近の重要決定事項
+   - [YYYY-MM-DD] 決定内容
+     - 理由: [決定の背景]
+     - 影響: [プロジェクトへの影響]
+   
+   ### プロジェクト固有の運用ルール
+   - [Linear上で定められた特別なワークフロー]
+   - [このプロジェクト特有のラベル使用ルール]
+   - [レビュープロセスの特記事項]
+   
+   ### 次のセッションへの引き継ぎ
+   - 未完了作業: [作業内容と状態]
+   - 注意事項: [次回注意すべき点]
+   - 優先対応: [最優先で対応すべきタスク]
+   ```
+6. 更新タイミング：
+   - スプリント開始/終了時
+   - 重要な決定やブロッカー発生時
+   - 日次/週次レポート作成時
+   - Claude Codeセッション終了前
 
 ## Linear運用のベストプラクティス
 
@@ -347,15 +539,22 @@ linear_settings:
 
 3. **ラベル付与規則**：
    - 必ず1つのphaseラベル
-   - 必ず1つのpriorityラベル
-   - 必ず1つのassigneeラベル（担当者を明確化）
+   - 必ず1つのexecutorラベル（実行者を明確化）
    - 必要に応じてtypeラベル
+   - 優先度はLinearの標準priority機能を使用（0-4）
 
-   **assigneeラベルの使い分け**：
-   - `assignee:human`: 人間が実行（会議、承認、外部調整など）
-   - `assignee:taskmanager`: TaskManagerが実行（計画、進捗管理、レポート作成）
-   - `assignee:datagatherer`: DataGathererが実行（調査、情報収集、ドキュメント処理）
-   - `assignee:developer`: Developerが実行（実装、テスト、デバッグ）
+   **executorラベルの使い分け**：
+   - `executor:human`: 人間が実行（会議、承認、外部調整など）
+   - `executor:taskmanager`: TaskManagerが実行（計画、進捗管理、レポート作成）
+   - `executor:datagatherer`: DataGathererが実行（調査、情報収集、ドキュメント処理）
+   - `executor:developer`: Developerが実行（実装、テスト、デバッグ）
+
+   **優先度の設定**：
+   - 0: Urgent（緊急）
+   - 1: High（高）
+   - 2: Medium（中）
+   - 3: Low（低）
+   - 4: None（なし）
 
 4. **サブタスク活用**：
    - 大きなタスクは必ずサブタスクに分解
@@ -385,8 +584,8 @@ linear_settings:
    - 例を示して回答しやすくする
    - スキップ可能な項目は「（任意）」と明記
 
-4. **担当者ラベルの自動判定**：
-   - タスクの内容から適切な担当者を提案
+4. **実行者ラベルの自動判定**：
+   - タスクの内容から適切な実行者を提案
    - 「調査」「情報収集」→ DataGatherer
    - 「実装」「開発」「テスト」→ Developer
    - 「計画」「管理」「レポート」→ TaskManager
@@ -467,10 +666,53 @@ linear_settings:
 5. **個人情報やセキュリティ情報はIssueに記載しない**
 6. **MCPツールの制限を理解し、適切に代替手段を提案**
 7. **対話形式で情報収集を行い、確認プロセスを必ず実施**
-8. **assigneeラベルで担当者を明確化**
+8. **executorラベルで実行者を明確化**
+9. **Slack通知の徹底**：
+   - 重要なプロジェクト活動は必ずSlackに通知
+   - auto_claude_notification_syuyamaチャンネルに送信
+   - プロジェクト作成・タスク作成・マイルストーン設定・週次レポート時は必須
+   - mcp__slack__slack_post_messageツールのみ使用
+
+## Slack通知統合
+
+### 通知する重要なイベント
+1. **プロジェクト作成**: 新規プロジェクト立ち上げ時の詳細情報
+2. **タスク作成**: 新規タスク作成時の担当者・優先度・完了条件
+3. **マイルストーン設定**: マイルストーン作成と関連タスク情報
+4. **週次レポート**: プロジェクト進捗サマリーと来週の計画
+5. **ブロッカー発生**: 重要な障害や遅延の発生時
+6. **プロジェクト完了**: マイルストーン達成やプロジェクト終了時
+
+### Slack通知のフォーマット統一
+1. **絵文字による分類**:
+   - 🚀: プロジェクト作成・開始
+   - 📋: タスク作成・管理
+   - 🎯: マイルストーン・目標
+   - 📊: レポート・分析
+   - ⚠️: ブロッカー・警告
+   - ✅: 完了・成功
+
+2. **必須情報の網羅**:
+   - Linear URL（該当する場合）
+   - 担当者（executorラベル）
+   - 優先度・期限
+   - 作成日時
+
+3. **構造化された表示**:
+   - セクション分けで可読性向上
+   - 関連情報のグループ化
+   - アクションアイテムの明示
+
+### 通知チャンネル
+- **メインチャンネル**: `auto_claude_notification_syuyama`
+- **すべての通知**: 同一チャンネルに集約
+- **優先度管理**: 緊急度に応じた絵文字で視覚的に区別
+
+### MCPツール使用の徹底
+すべてのSlack通知は`mcp__slack__slack_post_message`MCPツールのみを使用し、他の手段（Bash、外部API等）は使用しない。
 
 ## DataGathererとの連携
 - DataGatherer: 情報収集・外部連携
 - TaskManager: Linear内でのタスク実行管理
 
-両エージェントはLinear上で情報を共有し、ローカルでの重複を避ける。assigneeラベルにより、どのエージェントがタスクを実行すべきかが明確になる。
+両エージェントはLinear上で情報を共有し、ローカルでの重複を避ける。executorラベルにより、どのエージェントがタスクを実行すべきかが明確になる。Slack通知により、プロジェクト活動の透明性が確保される。
